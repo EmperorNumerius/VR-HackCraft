@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Hackcraft</title>
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const scene = document.querySelector('a-scene');
+        const chunkSize = 16;
+        const worldSize = 4; // 4x4 chunks
+        const blockSize = 1;
+        const noise = new SimplexNoise();
+        const blockTypes = [
+          {name: 'Grass', color: '#7CFC00'},
+          {name: 'Dirt', color: '#8B4513'},
+          {name: 'Stone', color: '#808080'},
+          {name: 'Sand', color: '#FFD700'}
+        ];
+        let selectedBlockType = blockTypes[0].color;
+        let inventoryVisible = false;
+        let flying = false;
+
+        // Generate the initial terrain
+        generateTerrain();
+
+        // Generate terrain function
+        function generateTerrain() {
+          for (let cx = 0; cx < worldSize; cx++) {
+            for (let cz = 0; cz < worldSize; cz++) {
+              generateChunk(cx, cz);
+            }
+          }
+        }
+
+        // Generate a single chunk
+        function generateChunk(chunkX, chunkZ) {
+          const chunk = document.createElement('a-entity');
+          chunk.setAttribute('id', `chunk-${chunkX}-${chunkZ}`);
+
+          for (let x = 0; x < chunkSize; x++) {
+            for (let z = 0; z < chunkSize; z++) {
+              const worldX = chunkX * chunkSize + x;
+              const worldZ = chunkZ * chunkSize + z;
+              const height = Math.floor((noise.noise2D(worldX / 10, worldZ / 10) + 1) * 5);
+              for (let y = 0; y <= height; y++) {
+                const block = document.createElement('a-box');
+                block.setAttribute('position', `${worldX * blockSize} ${y * blockSize} ${worldZ * blockSize}`);
+                block.setAttribute('width', blockSize);
+                block.setAttribute('height', blockSize);
+                block.setAttribute('depth', blockSize);
+                block.setAttribute('color', y === height ? '#7CFC00' : '#8B4513');
+                block.setAttribute('static-body', ''); // Make blocks non-collidable
+                chunk.appendChild(block);
+              }
+            }
+          }
+          scene.appendChild(chunk);
+        }
+
+        // UI for block selection and inventory
+        const inventoryUI = document.createElement('div');
+        inventoryUI.id = 'inventory-ui';
+        inventoryUI.style.position = 'fixed';
+        inventoryUI.style.bottom = '10px';
+        inventoryUI.style.left = '50%';
+        inventoryUI.style.transform = 'translateX(-50%)';
+        inventoryUI.style.display = 'flex';
+        inventoryUI.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+        inventoryUI.style.padding = '10px';
+        inventoryUI.style.borderRadius = '5px';
+        inventoryUI.innerHTML = blockTypes.map((block, index) => {
+          return `<button style="background-color: ${block.color}; width: 50px; height: 50px; margin: 5px;" onclick="selectBlock(${index})"></button>`;
+        }).join('');
+        document.body.appendChild(inventoryUI);
+
+        window.selectBlock = function(index) {
+          selectedBlockType = blockTypes[index].color;
+        }
+
+        // Handle block placement and mining
+        window.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          const newBlock = document.createElement('a-box');
+          const blockPos = calculateBlockPosition();
+          newBlock.setAttribute('position', blockPos);
+          newBlock.setAttribute('width', blockSize);
+          newBlock.setAttribute('height', blockSize);
+          newBlock.setAttribute('depth', blockSize);
+          newBlock.setAttribute('color', selectedBlockType);
+          newBlock.setAttribute('static-body', ''); // Make block non-collidable
+          scene.appendChild(newBlock);
+        });
+
+        window.addEventListener('click', (e) => {
+          const blockPos = calculateBlockPosition();
+          const block = document.querySelector(`a-box[position="${blockPos}"]`);
+          if (block) {
+            block.parentNode.removeChild(block);
+          }
+        });
+
+        // Handle inventory toggle and flying
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'i') {
+            inventoryVisible = !inventoryVisible;
+            inventoryUI.style.display = inventoryVisible ? 'flex' : 'none';
+          } else if (e.key === ' ') {
+            if (!flying) {
+              jump();
+            }
+          } else if (e.key === 'k') {
+            toggleFlying();
+          }
+        });
+
+        // Calculate the position to place or remove a block based on the camera's direction
+        function calculateBlockPosition() {
+          const camera = document.querySelector('[camera]');
+          const cameraPos = camera.getAttribute('position');
+          const cameraDir = new THREE.Vector3();
+          camera.object3D.getWorldDirection(cameraDir);
+
+          const blockPos = {
+            x: Math.round(cameraPos.x + cameraDir.x),
+            y: Math.round(cameraPos.y + cameraDir.y),
+            z: Math.round(cameraPos.z + cameraDir.z)
+          };
+          return `${blockPos.x} ${blockPos.y} ${blockPos.z}`;
+        }
+
+        // Implement jump functionality
+        function jump() {
+          const player = document.querySelector('[camera]');
+          player.setAttribute('velocity', {x: 0, y: 5, z: 0});
+        }
+
+        // Toggle flying mode
+        function toggleFlying() {
+          const player = document.querySelector('[camera]');
+          if (flying) {
+            player.removeAttribute('dynamic-body');
+            player.setAttribute('position', {x: 0, y: 10, z: 10});
+          } else {
+            player.setAttribute('dynamic-body', '');
+          }
+          flying = !flying;
+        }
+
+        // Move the player in the air when flying
+        document.addEventListener('keydown', (event) => {
+          if (flying) {
+            const player = document.querySelector('[camera]');
+            const position = player.getAttribute('position');
+
+            switch (event.key) {
+              case 'w':
+                position.z -= 1;
+                break;
+              case 'a':
+                position.x -= 1;
+                break;
+              case 's':
+                position.z += 1;
+                break;
+              case 'd':
+                position.x += 1;
+                break;
+              case ' ':
+                position.y += 1;
+                break;
+              case 'Shift':
+                position.y -= 1;
+                break;
+            }
+
+            player.setAttribute('position', position);
+          }
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <a-scene physics="debug: true">
+      <!-- Lighting -->
+      <a-light type="directional" position="-1 2 1" intensity="0.5"></a-light>
+
+      <!-- Camera and Controls -->
+      <a-entity camera look-controls wasd-controls position="0 10 10" dynamic-body></a-entity>
+    </a-scene>
+  </body>
+</html>
+
